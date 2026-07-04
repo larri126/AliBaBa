@@ -136,9 +136,13 @@ let cart = [];
 let orders = [];
 let activeCategory = Object.keys(MENU)[0];
 let activeView = 'menu';
+let orderType = 'dine-in';
 let selectedTable = null;
+let editingOrderId = null;
 let currentSheetItem = null;
+let currentSheetCategoryKey = null;
 let sheetConfig = {};
+let sheetTargetOrder = 'new';
 
 /* ============================================================
    DOM REFERENCES
@@ -161,6 +165,11 @@ const dom = {
   ordersEmpty: $('#orders-empty'),
   ordersCount: $('#orders-count'),
   ordersRevenue: $('#orders-revenue'),
+  activeOrdersList: $('#active-orders-list'),
+  activeOrdersEmpty: $('#active-orders-empty'),
+  activeOrdersCount: $('#active-orders-count'),
+  editingBanner: $('#editing-banner'),
+  editingLabel: $('#editing-label'),
   itemSheet: $('#item-sheet'),
   itemSheetOverlay: $('#item-sheet-overlay'),
   sheetBody: $('#sheet-body'),
@@ -238,9 +247,74 @@ function loadOrders() {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
     orders = data ? JSON.parse(data) : [];
+    migrateOrders();
   } catch {
     orders = [];
   }
+}
+
+function migrateOrders() {
+  let changed = false;
+  orders = orders.map((order) => {
+    const migrated = { ...order };
+
+    if (!migrated.status) { migrated.status = 'active'; changed = true; }
+    if (!migrated.updatedAt) { migrated.updatedAt = migrated.createdAt; changed = true; }
+
+    if (!migrated.orderType) {
+      changed = true;
+      if (migrated.table && migrated.table !== 'Takeaway') {
+        migrated.orderType = 'dine-in';
+        migrated.customerName = null;
+      } else if (migrated.customerName) {
+        migrated.orderType = 'takeaway';
+        migrated.table = null;
+      } else {
+        migrated.orderType = 'dine-in';
+      }
+    }
+
+    if (migrated.orderType === 'dine-in' && migrated.table === 'Takeaway') {
+      migrated.table = null;
+      migrated.orderType = 'takeaway';
+      migrated.customerName = migrated.customerName || 'Cliente';
+      changed = true;
+    }
+
+    const items = (migrated.items || []).map((item) => {
+      if (!item.cartId || !item.itemId) changed = true;
+      return {
+        ...item,
+        itemId: item.itemId || null,
+        cartId: item.cartId || generateId(),
+      };
+    });
+    migrated.items = items;
+
+    return migrated;
+  });
+  if (changed) saveOrders();
+}
+
+function getActiveOrders() {
+  return orders.filter((o) => o.status === 'active');
+}
+
+function getOrderLabel(order) {
+  if (order.orderType === 'takeaway') {
+    return `Nombre: ${order.customerName}`;
+  }
+  return `Mesa ${order.table}`;
+}
+
+function getOrderById(orderId) {
+  return orders.find((o) => o.id === orderId);
+}
+
+function recalculateOrderTotals(order) {
+  order.itemCount = order.items.reduce((sum, i) => sum + i.quantity, 0);
+  order.total = order.items.reduce((sum, i) => sum + i.totalPrice, 0);
+  order.updatedAt = new Date().toISOString();
 }
 
 function saveOrders() {
@@ -277,7 +351,9 @@ async function clearHistory() {
   if (confirmed) {
     orders = [];
     saveOrders();
+    cancelEditing();
     renderHistory();
+    renderActiveOrders();
     showToast('Historial eliminado');
   }
 }
@@ -321,23 +397,53 @@ function getCartItemCount() {
    CART
    ============================================================ */
 
-function addToCart(item, categoryKey, config) {
+function buildCartEntry(item, categoryKey, config) {
   const unitPrice = calculateItemPrice(item, config);
-  const cartId = generateId();
-
-  cart.push({
-    cartId,
+  return {
+    cartId: generateId(),
     itemId: item.id,
     name: item.name,
     category: MENU[categoryKey].label,
     quantity: 1,
-    config: { ...config },
+    config: { ...config, supplements: [...(config.supplements || [])] },
     unitPrice,
     totalPrice: unitPrice,
-  });
+  };
+}
 
+function buildOrderItem(entry) {
+  return {
+    cartId: entry.cartId,
+    itemId: entry.itemId,
+    name: entry.name,
+    category: entry.category,
+    quantity: entry.quantity,
+    unitPrice: entry.unitPrice,
+    totalPrice: entry.totalPrice,
+    config: entry.config,
+    configLabel: buildConfigLabel(entry.config, findMenuItem(entry.itemId)),
+  };
+}
+
+function addToCart(item, categoryKey, config) {
+  cart.push(buildCartEntry(item, categoryKey, config));
   updateCartUI();
   showToast(`${item.name} añadido al carrito`);
+}
+
+function appendItemToOrder(orderId, item, categoryKey, config) {
+  const order = getOrderById(orderId);
+  if (!order || order.status !== 'active') {
+    showToast('Pedido no encontrado');
+    return;
+  }
+
+  const entry = buildCartEntry(item, categoryKey, config);
+  order.items.push(buildOrderItem(entry));
+  recalculateOrderTotals(order);
+  saveOrders();
+  renderActiveOrders();
+  showToast(`${item.name} añadido a ${getOrderLabel(order)}`);
 }
 
 function removeFromCart(cartId) {
@@ -383,57 +489,170 @@ function buildConfigLabel(config, item) {
 }
 
 /* ============================================================
-   ORDER SUBMISSION
+   ORDER SUBMISSION & EDITING
    ============================================================ */
 
-function submitOrder() {
-  const customerName = dom.customerName.value.trim();
-  if (!customerName) {
+function resetCheckoutForm() {
+  dom.customerName.value = '';
+  selectedTable = null;
+  orderType = 'dine-in';
+  $$('.table-btn').forEach((b) => b.classList.remove('selected'));
+  setOrderType('dine-in');
+}
+
+function setOrderType(type) {
+  orderType = type;
+  $$('.order-type-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.type === type);
+  });
+  $('#section-table').classList.toggle('hidden', type !== 'dine-in');
+  $('#section-name').classList.toggle('hidden', type !== 'takeaway');
+  if (type === 'dine-in') {
+    dom.customerName.value = '';
+  } else {
+    selectedTable = null;
+    $$('.table-btn').forEach((b) => b.classList.remove('selected'));
+  }
+}
+
+function validateOrderMetadata() {
+  if (orderType === 'dine-in') {
+    if (!selectedTable) {
+      showToast('Selecciona una mesa');
+      return false;
+    }
+    return true;
+  }
+  const name = dom.customerName.value.trim();
+  if (!name) {
     showToast('Introduce el nombre del cliente');
     dom.customerName.focus();
-    return;
+    return false;
   }
-  if (!selectedTable) {
-    showToast('Selecciona una mesa');
-    return;
-  }
+  return true;
+}
+
+function buildOrderFromCart(metadata) {
+  return {
+    id: generateId(),
+    orderType: metadata.orderType,
+    customerName: metadata.orderType === 'takeaway' ? metadata.customerName : null,
+    table: metadata.orderType === 'dine-in' ? metadata.table : null,
+    items: cart.map(buildOrderItem),
+    total: getCartTotal(),
+    itemCount: getCartItemCount(),
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function submitOrder() {
   if (cart.length === 0) {
     showToast('El carrito está vacío');
     return;
   }
 
-  const order = {
-    id: generateId(),
-    customerName,
+  if (editingOrderId) {
+    saveEditedOrder();
+    return;
+  }
+
+  if (!validateOrderMetadata()) return;
+
+  const order = buildOrderFromCart({
+    orderType,
+    customerName: dom.customerName.value.trim(),
     table: selectedTable,
-    items: cart.map((e) => ({
-      name: e.name,
-      category: e.category,
-      quantity: e.quantity,
-      unitPrice: e.unitPrice,
-      totalPrice: e.totalPrice,
-      config: e.config,
-      configLabel: buildConfigLabel(e.config, findMenuItem(e.itemId)),
-    })),
-    total: getCartTotal(),
-    itemCount: getCartItemCount(),
-    createdAt: new Date().toISOString(),
-  };
+  });
 
   orders.unshift(order);
   saveOrders();
 
-  const tableDisplay = order.table === 'Takeaway' ? 'Para Llevar' : order.table;
-
+  const label = getOrderLabel(order);
   clearCart();
   closeCheckout();
   closeSheet(dom.cartSheet, dom.cartSheetOverlay);
-  dom.customerName.value = '';
-  selectedTable = null;
-  $$('.table-btn').forEach((b) => b.classList.remove('selected'));
-
+  resetCheckoutForm();
+  renderActiveOrders();
   renderHistory();
-  showToast(`Pedido enviado — Mesa ${tableDisplay}`);
+  showToast(`Pedido enviado — ${label}`);
+}
+
+function loadOrderForEditing(orderId) {
+  const order = getOrderById(orderId);
+  if (!order || order.status !== 'active') {
+    showToast('Pedido no encontrado');
+    return;
+  }
+
+  editingOrderId = orderId;
+  cart = order.items.map((item) => ({
+    cartId: item.cartId || generateId(),
+    itemId: item.itemId,
+    name: item.name,
+    category: item.category,
+    quantity: item.quantity,
+    config: item.config || {},
+    unitPrice: item.unitPrice,
+    totalPrice: item.totalPrice,
+  }));
+
+  updateCartUI();
+  switchView('menu');
+  openSheet(dom.cartSheet, dom.cartSheetOverlay);
+  showToast(`Editando ${getOrderLabel(order)}`);
+}
+
+function saveEditedOrder() {
+  const order = getOrderById(editingOrderId);
+  if (!order) {
+    showToast('Pedido no encontrado');
+    cancelEditing();
+    return;
+  }
+
+  if (cart.length === 0) {
+    showToast('El pedido no puede quedar vacío. Usa "Completar" para cerrarlo.');
+    return;
+  }
+
+  order.items = cart.map(buildOrderItem);
+  recalculateOrderTotals(order);
+  saveOrders();
+
+  const label = getOrderLabel(order);
+  cancelEditing();
+  closeSheet(dom.cartSheet, dom.cartSheetOverlay);
+  renderActiveOrders();
+  renderHistory();
+  showToast(`Cambios guardados — ${label}`);
+}
+
+function cancelEditing() {
+  editingOrderId = null;
+  clearCart();
+  updateCartUI();
+}
+
+async function completeOrder(orderId) {
+  const order = getOrderById(orderId);
+  if (!order) return;
+
+  const confirmed = await showConfirm(
+    'Completar Pedido',
+    `¿Marcar "${getOrderLabel(order)}" como completado?`
+  );
+  if (!confirmed) return;
+
+  if (editingOrderId === orderId) cancelEditing();
+
+  order.status = 'closed';
+  order.updatedAt = new Date().toISOString();
+  saveOrders();
+  renderActiveOrders();
+  renderHistory();
+  showToast('Pedido completado');
 }
 
 function findMenuItem(itemId) {
@@ -450,6 +669,7 @@ function findMenuItem(itemId) {
 
 function openItemSheet(item, categoryKey) {
   currentSheetItem = item;
+  currentSheetCategoryKey = categoryKey;
   const category = MENU[categoryKey];
 
   sheetConfig = {
@@ -459,11 +679,13 @@ function openItemSheet(item, categoryKey) {
     supplements: [],
     customPrice: item.editable ? item.price : null,
   };
+  sheetTargetOrder = 'new';
 
   dom.sheetItemName.textContent = item.name;
   dom.sheetItemCategory.textContent = category.label + (item.description ? ` — ${item.description}` : '');
   renderSheetOptions(item);
   updateSheetPrice();
+  updateSheetAddButton();
   openSheet(dom.itemSheet, dom.itemSheetOverlay);
 }
 
@@ -524,6 +746,17 @@ function renderSheetOptions(item) {
 
   html += `
     <div>
+      <p class="text-sm font-semibold text-stone-700 mb-2">Pedido Destino</p>
+      <select id="target-order" class="w-full border-2 border-stone-200 rounded-xl px-4 py-3.5 text-base font-medium focus:outline-none focus:border-kebab-500 bg-white appearance-none">
+        <option value="new">Nuevo Pedido (carrito)</option>
+        ${getActiveOrders().map((o) => `
+          <option value="${o.id}">${getOrderLabel(o)} — ${formatPrice(o.total)}</option>
+        `).join('')}
+      </select>
+    </div>`;
+
+  html += `
+    <div>
       <p class="text-sm font-semibold text-stone-700 mb-2">Suplementos <span class="font-normal text-stone-400">(+${formatPrice(SUPPLEMENT_PRICE)} c/u)</span></p>
       <div class="space-y-2">
         ${SUPPLEMENTS.map((s) => `
@@ -537,6 +770,26 @@ function renderSheetOptions(item) {
 
   dom.sheetBody.innerHTML = html;
   bindSheetEvents(item);
+
+  const targetSelect = $('#target-order');
+  if (targetSelect) {
+    targetSelect.value = sheetTargetOrder;
+    targetSelect.addEventListener('change', () => {
+      sheetTargetOrder = targetSelect.value;
+      updateSheetAddButton();
+    });
+  }
+}
+
+function updateSheetAddButton() {
+  const btn = $('#sheet-add-btn');
+  if (!btn) return;
+  if (sheetTargetOrder === 'new') {
+    btn.textContent = 'Añadir al Carrito';
+  } else {
+    const order = getOrderById(sheetTargetOrder);
+    btn.textContent = order ? `Añadir a ${getOrderLabel(order)}` : 'Añadir al Pedido';
+  }
 }
 
 function bindSheetEvents(item) {
@@ -608,6 +861,8 @@ function updateSheetPrice() {
 function closeItemSheet() {
   closeSheet(dom.itemSheet, dom.itemSheetOverlay);
   currentSheetItem = null;
+  currentSheetCategoryKey = null;
+  sheetTargetOrder = 'new';
 }
 
 /* ============================================================
@@ -716,13 +971,97 @@ function updateCartUI() {
   dom.cartTotalBar.textContent = formatPrice(total);
   dom.cartTotal.textContent = formatPrice(total);
 
-  if (count > 0) {
+  const isEditing = !!editingOrderId;
+  dom.editingBanner.classList.toggle('hidden', !isEditing);
+  $('#btn-checkout').classList.toggle('hidden', isEditing);
+  $('#btn-save-edit').classList.toggle('hidden', !isEditing);
+
+  if (isEditing) {
+    const order = getOrderById(editingOrderId);
+    dom.editingLabel.textContent = order ? getOrderLabel(order) : '';
+  }
+
+  if (count > 0 || isEditing) {
     dom.cartBar.classList.remove('hidden');
   } else {
     dom.cartBar.classList.add('hidden');
   }
 
   renderCartItems();
+}
+
+function renderOrderCard(order, { showActions = false } = {}) {
+  const date = new Date(order.updatedAt || order.createdAt);
+  const timeStr = date.toLocaleString('es-ES', {
+    day: '2-digit', month: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+
+  const itemsHtml = order.items.map((item) => `
+    <div class="flex justify-between text-sm py-1.5 border-b border-stone-100 last:border-0">
+      <div class="flex-1 min-w-0 pr-2">
+        <span class="font-medium">${item.quantity}x ${item.name}</span>
+        ${item.configLabel ? `<span class="text-xs text-kebab-600 block mt-0.5">${item.configLabel}</span>` : ''}
+      </div>
+      <span class="text-stone-600 flex-shrink-0 font-medium">${formatPrice(item.totalPrice)}</span>
+    </div>
+  `).join('');
+
+  const statusBadge = order.status === 'active'
+    ? '<span class="text-xs font-semibold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Activo</span>'
+    : '<span class="text-xs font-semibold bg-stone-100 text-stone-500 px-2 py-0.5 rounded-full">Completado</span>';
+
+  const actionsHtml = showActions ? `
+    <div class="flex gap-2 mt-3 pt-3 border-t border-stone-100">
+      <button type="button" data-edit-order="${order.id}" class="flex-1 bg-kebab-600 hover:bg-kebab-700 active:bg-kebab-800 text-white font-semibold py-3 rounded-xl text-sm transition-colors">
+        Editar Pedido
+      </button>
+      <button type="button" data-complete-order="${order.id}" class="flex-1 bg-stone-100 hover:bg-stone-200 active:bg-stone-300 text-stone-700 font-semibold py-3 rounded-xl text-sm transition-colors">
+        Completar
+      </button>
+    </div>
+  ` : '';
+
+  return `
+    <div class="bg-white rounded-2xl shadow-sm p-4">
+      <div class="flex items-start justify-between mb-1">
+        <div>
+          <p class="font-bold text-stone-900 text-lg">${getOrderLabel(order)}</p>
+          <p class="text-xs text-stone-400 mt-0.5">${timeStr}</p>
+        </div>
+        <div class="text-right flex-shrink-0 ml-2">
+          <span class="text-lg font-bold text-kebab-700">${formatPrice(order.total)}</span>
+          <div class="mt-1">${statusBadge}</div>
+        </div>
+      </div>
+      <div class="bg-stone-50 rounded-xl p-3 mt-2">
+        ${itemsHtml}
+      </div>
+      ${actionsHtml}
+    </div>`;
+}
+
+function renderActiveOrders() {
+  const active = getActiveOrders();
+  dom.activeOrdersCount.textContent = active.length;
+
+  if (active.length === 0) {
+    dom.activeOrdersList.innerHTML = '';
+    dom.activeOrdersEmpty.classList.remove('hidden');
+    return;
+  }
+
+  dom.activeOrdersEmpty.classList.add('hidden');
+  dom.activeOrdersList.innerHTML = active.map((order) =>
+    renderOrderCard(order, { showActions: true })
+  ).join('');
+
+  dom.activeOrdersList.querySelectorAll('[data-edit-order]').forEach((btn) => {
+    btn.addEventListener('click', () => loadOrderForEditing(btn.dataset.editOrder));
+  });
+  dom.activeOrdersList.querySelectorAll('[data-complete-order]').forEach((btn) => {
+    btn.addEventListener('click', () => completeOrder(btn.dataset.completeOrder));
+  });
 }
 
 function renderHistory() {
@@ -737,51 +1076,27 @@ function renderHistory() {
   }
 
   dom.ordersEmpty.classList.add('hidden');
-
-  dom.ordersList.innerHTML = orders.map((order) => {
-    const date = new Date(order.createdAt);
-    const timeStr = date.toLocaleString('es-ES', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    });
-
-    const itemsHtml = order.items.map((item) => `
-      <div class="flex justify-between text-sm py-1 border-b border-stone-100 last:border-0">
-        <div class="flex-1 min-w-0 pr-2">
-          <span class="font-medium">${item.quantity}x ${item.name}</span>
-          ${item.configLabel ? `<span class="text-xs text-stone-400 block">${item.configLabel}</span>` : ''}
-        </div>
-        <span class="text-stone-600 flex-shrink-0">${formatPrice(item.totalPrice)}</span>
-      </div>
-    `).join('');
-
-    return `
-      <div class="bg-white rounded-2xl shadow-sm p-4">
-        <div class="flex items-start justify-between mb-2">
-          <div>
-            <p class="font-bold text-stone-900">${order.customerName}</p>
-            <p class="text-sm text-stone-500">Mesa ${order.table === 'Takeaway' ? 'Para Llevar' : order.table}</p>
-          </div>
-          <span class="text-lg font-bold text-kebab-700">${formatPrice(order.total)}</span>
-        </div>
-        <p class="text-xs text-stone-400 mb-2">${timeStr}</p>
-        <div class="bg-stone-50 rounded-xl p-3 mt-2">
-          ${itemsHtml}
-        </div>
-      </div>`;
-  }).join('');
+  dom.ordersList.innerHTML = orders.map((order) => renderOrderCard(order)).join('');
 }
 
 function switchView(view) {
   activeView = view;
   $('#view-menu').classList.toggle('hidden', view !== 'menu');
+  $('#view-active').classList.toggle('hidden', view !== 'active');
   $('#view-history').classList.toggle('hidden', view !== 'history');
-  $('#header-subtitle').textContent = view === 'menu' ? 'Menú activo' : 'Historial de pedidos';
+
+  const subtitles = {
+    menu: 'Menú activo',
+    active: 'Comandas activas',
+    history: 'Historial de pedidos',
+  };
+  $('#header-subtitle').textContent = subtitles[view] || '';
 
   $$('.nav-tab').forEach((tab) => {
     tab.classList.toggle('active', tab.dataset.view === view);
   });
 
+  if (view === 'active') renderActiveOrders();
   if (view === 'history') renderHistory();
 }
 
@@ -792,6 +1107,10 @@ function switchView(view) {
 function openCheckout() {
   if (cart.length === 0) {
     showToast('El carrito está vacío');
+    return;
+  }
+  if (editingOrderId) {
+    saveEditedOrder();
     return;
   }
   dom.checkoutItemsCount.textContent = getCartItemCount();
@@ -816,11 +1135,15 @@ function bindEvents() {
   dom.itemSheetOverlay.addEventListener('click', closeItemSheet);
 
   $('#sheet-add-btn').addEventListener('click', () => {
-    if (!currentSheetItem) return;
-    const catKey = Object.keys(MENU).find((k) =>
-      MENU[k].items.some((i) => i.id === currentSheetItem.id)
-    );
-    addToCart(currentSheetItem, catKey, { ...sheetConfig, supplements: [...sheetConfig.supplements] });
+    if (!currentSheetItem || !currentSheetCategoryKey) return;
+    const config = { ...sheetConfig, supplements: [...sheetConfig.supplements] };
+    const target = $('#target-order') ? $('#target-order').value : sheetTargetOrder;
+
+    if (target && target !== 'new') {
+      appendItemToOrder(target, currentSheetItem, currentSheetCategoryKey, config);
+    } else {
+      addToCart(currentSheetItem, currentSheetCategoryKey, config);
+    }
     closeItemSheet();
   });
 
@@ -837,9 +1160,20 @@ function bindEvents() {
     openCheckout();
   });
 
+  $('#btn-save-edit').addEventListener('click', saveEditedOrder);
+  $('#btn-cancel-edit').addEventListener('click', () => {
+    cancelEditing();
+    closeSheet(dom.cartSheet, dom.cartSheetOverlay);
+    showToast('Edición cancelada');
+  });
+
   $('#checkout-close').addEventListener('click', closeCheckout);
   dom.checkoutOverlay.addEventListener('click', (e) => {
     if (e.target === dom.checkoutOverlay) closeCheckout();
+  });
+
+  $$('.order-type-btn').forEach((btn) => {
+    btn.addEventListener('click', () => setOrderType(btn.dataset.type));
   });
 
   $$('.table-btn').forEach((btn) => {
@@ -861,9 +1195,11 @@ function bindEvents() {
 
 function init() {
   loadOrders();
+  setOrderType('dine-in');
   renderCategoryTabs();
   renderMenuItems();
   updateCartUI();
+  renderActiveOrders();
   renderHistory();
   bindEvents();
 }
