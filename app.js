@@ -16,6 +16,14 @@ const SUPPLEMENTS = [
   { id: 'carne_extra', label: 'Carne Extra' },
 ];
 
+const EXCLUSIONS = [
+  { id: 'sin_ensalada', label: 'Sin ensalada' },
+  { id: 'sin_cebolla', label: 'Sin cebolla' },
+  { id: 'sin_lechuga', label: 'Sin lechuga' },
+  { id: 'sin_tomate', label: 'Sin tomate' },
+  { id: 'sin_col', label: 'Sin col' },
+];
+
 const MENU = {
   kebabs: {
     label: 'Kebabs',
@@ -143,6 +151,7 @@ let currentSheetItem = null;
 let currentSheetCategoryKey = null;
 let sheetConfig = {};
 let sheetTargetOrder = 'new';
+let supplementPickerContext = null;
 
 /* ============================================================
    DOM REFERENCES
@@ -186,6 +195,9 @@ const dom = {
   confirmOverlay: $('#confirm-overlay'),
   confirmTitle: $('#confirm-title'),
   confirmMessage: $('#confirm-message'),
+  supplementOverlay: $('#supplement-overlay'),
+  supplementPickerTitle: $('#supplement-picker-title'),
+  supplementPickerList: $('#supplement-picker-list'),
 };
 
 /* ============================================================
@@ -283,10 +295,14 @@ function migrateOrders() {
 
     const items = (migrated.items || []).map((item) => {
       if (!item.cartId || !item.itemId) changed = true;
+      const config = item.config || {};
+      if (!config.exclusions) { config.exclusions = []; changed = true; }
+      if (!config.supplements) { config.supplements = []; changed = true; }
       return {
         ...item,
         itemId: item.itemId || null,
         cartId: item.cartId || generateId(),
+        config,
       };
     });
     migrated.items = items;
@@ -362,7 +378,7 @@ async function clearHistory() {
    PRICE CALCULATION
    ============================================================ */
 
-function calculateItemPrice(item, config) {
+function calculateBasePrice(item, config) {
   let price;
 
   if (item.sizes) {
@@ -378,11 +394,20 @@ function calculateItemPrice(item, config) {
     price += GRANDE_SURCHARGE;
   }
 
-  if (config.supplements && config.supplements.length > 0) {
-    price += config.supplements.length * SUPPLEMENT_PRICE;
-  }
-
   return price;
+}
+
+function getSupplementCost(config) {
+  return (config.supplements?.length || 0) * SUPPLEMENT_PRICE;
+}
+
+function calculateUnitPrice(item, config) {
+  return calculateBasePrice(item, config) + getSupplementCost(config);
+}
+
+/** Price for item sheet preview (base only, no supplements) */
+function calculateItemPrice(item, config) {
+  return calculateBasePrice(item, config);
 }
 
 function getCartTotal() {
@@ -397,15 +422,40 @@ function getCartItemCount() {
    CART
    ============================================================ */
 
+function normalizeConfig(config) {
+  return {
+    bread: config.bread || null,
+    grande: !!config.grande,
+    size: config.size || null,
+    customPrice: config.customPrice ?? null,
+    exclusions: [...(config.exclusions || [])],
+    supplements: [...(config.supplements || [])],
+  };
+}
+
+function recalculateEntryPrice(entry) {
+  const menuItem = findMenuItem(entry.itemId);
+  entry.unitPrice = menuItem
+    ? calculateUnitPrice(menuItem, entry.config)
+    : entry.unitPrice;
+  entry.totalPrice = entry.unitPrice * entry.quantity;
+}
+
+function recalculateOrderItem(entry) {
+  recalculateEntryPrice(entry);
+  entry.configLabel = buildConfigLabel(entry.config, findMenuItem(entry.itemId));
+}
+
 function buildCartEntry(item, categoryKey, config) {
-  const unitPrice = calculateItemPrice(item, config);
+  const normalized = normalizeConfig(config);
+  const unitPrice = calculateBasePrice(item, normalized);
   return {
     cartId: generateId(),
     itemId: item.id,
     name: item.name,
     category: MENU[categoryKey].label,
     quantity: 1,
-    config: { ...config, supplements: [...(config.supplements || [])] },
+    config: normalized,
     unitPrice,
     totalPrice: unitPrice,
   };
@@ -460,7 +510,7 @@ function updateCartQuantity(cartId, delta) {
     removeFromCart(cartId);
     return;
   }
-  entry.totalPrice = entry.unitPrice * entry.quantity;
+  recalculateEntryPrice(entry);
   updateCartUI();
 }
 
@@ -469,23 +519,206 @@ function clearCart() {
   updateCartUI();
 }
 
+function buildModifierLabel(config, item) {
+  const parts = [];
+
+  if (config.bread) parts.push(config.bread);
+  if (config.grande && item?.grande) parts.push('Grande');
+  if (config.size && item?.sizes) {
+    parts.push(config.size === 'grande' ? 'Grande' : 'Mediana');
+  }
+  if (config.exclusions?.length > 0) {
+    const labels = config.exclusions.map((id) => {
+      const ex = EXCLUSIONS.find((e) => e.id === id);
+      return ex ? ex.label : id;
+    });
+    parts.push(labels.join(', '));
+  }
+
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
 function buildConfigLabel(config, item) {
   const parts = [];
 
   if (config.bread) parts.push(config.bread);
-  if (config.grande && item.grande) parts.push('Grande');
-  if (config.size && item.sizes) {
+  if (config.grande && item?.grande) parts.push('Grande');
+  if (config.size && item?.sizes) {
     parts.push(config.size === 'grande' ? 'Grande' : 'Mediana');
   }
-  if (config.supplements && config.supplements.length > 0) {
+  if (config.exclusions?.length > 0) {
+    const labels = config.exclusions.map((id) => {
+      const ex = EXCLUSIONS.find((e) => e.id === id);
+      return ex ? ex.label : id;
+    });
+    parts.push(labels.join(', '));
+  }
+  if (config.supplements?.length > 0) {
     const labels = config.supplements.map((id) => {
       const sup = SUPPLEMENTS.find((s) => s.id === id);
-      return sup ? sup.label : id;
+      return sup ? `+${sup.label}` : id;
     });
-    parts.push('+' + labels.join(', '));
+    parts.push(labels.join(', '));
   }
 
   return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/* ============================================================
+   SUPPLEMENT MANAGEMENT
+   ============================================================ */
+
+function openSupplementPicker(cartId, orderId = null) {
+  let entry;
+  if (orderId) {
+    const order = getOrderById(orderId);
+    entry = order?.items.find((i) => i.cartId === cartId);
+  } else {
+    entry = cart.find((e) => e.cartId === cartId);
+  }
+  if (!entry) return;
+
+  supplementPickerContext = { cartId, orderId };
+  const current = entry.config.supplements || [];
+  const available = SUPPLEMENTS.filter((s) => !current.includes(s.id));
+
+  dom.supplementPickerTitle.textContent = `Suplementos — ${entry.name}`;
+
+  if (available.length === 0) {
+    dom.supplementPickerList.innerHTML = `
+      <p class="text-center text-stone-500 py-4 text-sm">Todos los suplementos ya están añadidos</p>`;
+  } else {
+    dom.supplementPickerList.innerHTML = available.map((s) => `
+      <button type="button" data-supplement-id="${s.id}"
+        class="w-full flex items-center justify-between p-4 bg-stone-50 hover:bg-kebab-50 active:bg-kebab-100 rounded-xl transition-colors text-left">
+        <span class="font-semibold text-stone-800">${s.label}</span>
+        <span class="text-kebab-700 font-bold">+${formatPrice(SUPPLEMENT_PRICE)}</span>
+      </button>
+    `).join('');
+
+    dom.supplementPickerList.querySelectorAll('[data-supplement-id]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        addSupplementToItem(cartId, btn.dataset.supplementId, orderId);
+        closeSupplementPicker();
+      });
+    });
+  }
+
+  dom.supplementOverlay.classList.remove('hidden');
+}
+
+function closeSupplementPicker() {
+  dom.supplementOverlay.classList.add('hidden');
+  supplementPickerContext = null;
+}
+
+function addSupplementToItem(cartId, supplementId, orderId = null) {
+  if (orderId) {
+    const order = getOrderById(orderId);
+    if (!order || order.status !== 'active') return;
+    const item = order.items.find((i) => i.cartId === cartId);
+    if (!item) return;
+    if (!item.config.supplements) item.config.supplements = [];
+    if (item.config.supplements.includes(supplementId)) return;
+    item.config.supplements.push(supplementId);
+    recalculateOrderItem(item);
+    recalculateOrderTotals(order);
+    saveOrders();
+    renderActiveOrders();
+    if (editingOrderId === orderId) syncCartFromOrder(order);
+    const sup = SUPPLEMENTS.find((s) => s.id === supplementId);
+    showToast(`+${sup?.label || 'Suplemento'} añadido`);
+    return;
+  }
+
+  const entry = cart.find((e) => e.cartId === cartId);
+  if (!entry) return;
+  if (!entry.config.supplements) entry.config.supplements = [];
+  if (entry.config.supplements.includes(supplementId)) return;
+  entry.config.supplements.push(supplementId);
+  recalculateEntryPrice(entry);
+  updateCartUI();
+  const sup = SUPPLEMENTS.find((s) => s.id === supplementId);
+  showToast(`+${sup?.label || 'Suplemento'} añadido`);
+}
+
+function removeSupplementFromItem(cartId, supplementId, orderId = null) {
+  if (orderId) {
+    const order = getOrderById(orderId);
+    if (!order) return;
+    const item = order.items.find((i) => i.cartId === cartId);
+    if (!item?.config.supplements) return;
+    item.config.supplements = item.config.supplements.filter((s) => s !== supplementId);
+    recalculateOrderItem(item);
+    recalculateOrderTotals(order);
+    saveOrders();
+    renderActiveOrders();
+    if (editingOrderId === orderId) syncCartFromOrder(order);
+    showToast('Suplemento eliminado');
+    return;
+  }
+
+  const entry = cart.find((e) => e.cartId === cartId);
+  if (!entry?.config.supplements) return;
+  entry.config.supplements = entry.config.supplements.filter((s) => s !== supplementId);
+  recalculateEntryPrice(entry);
+  updateCartUI();
+  showToast('Suplemento eliminado');
+}
+
+function syncCartFromOrder(order) {
+  cart = order.items.map((item) => ({
+    cartId: item.cartId,
+    itemId: item.itemId,
+    name: item.name,
+    category: item.category,
+    quantity: item.quantity,
+    config: normalizeConfig(item.config || {}),
+    unitPrice: item.unitPrice,
+    totalPrice: item.totalPrice,
+  }));
+  updateCartUI();
+}
+
+function renderSupplementTags(entry, orderId = null) {
+  const supplements = entry.config?.supplements || [];
+  if (supplements.length === 0) return '';
+
+  return `
+    <div class="flex flex-wrap gap-1.5 mt-2">
+      ${supplements.map((id) => {
+        const sup = SUPPLEMENTS.find((s) => s.id === id);
+        return `
+          <span class="inline-flex items-center gap-1 text-xs font-medium bg-kebab-100 text-kebab-800 pl-2.5 pr-1.5 py-1 rounded-full">
+            +${sup?.label || id}
+            <button type="button"
+              data-rm-supplement="${id}"
+              data-cart-id="${entry.cartId}"
+              data-order-id="${orderId || ''}"
+              class="w-5 h-5 flex items-center justify-center rounded-full hover:bg-kebab-200 text-kebab-900 font-bold leading-none"
+              aria-label="Quitar ${sup?.label || id}">×</button>
+          </span>`;
+      }).join('')}
+    </div>`;
+}
+
+function bindSupplementControls(container) {
+  container.querySelectorAll('[data-add-supplement]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const orderId = btn.dataset.orderId || null;
+      openSupplementPicker(btn.dataset.addSupplement, orderId === '' ? null : orderId);
+    });
+  });
+  container.querySelectorAll('[data-rm-supplement]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const orderId = btn.dataset.orderId || null;
+      removeSupplementFromItem(
+        btn.dataset.cartId,
+        btn.dataset.rmSupplement,
+        orderId === '' ? null : orderId
+      );
+    });
+  });
 }
 
 /* ============================================================
@@ -593,7 +826,7 @@ function loadOrderForEditing(orderId) {
     name: item.name,
     category: item.category,
     quantity: item.quantity,
-    config: item.config || {},
+    config: normalizeConfig(item.config || {}),
     unitPrice: item.unitPrice,
     totalPrice: item.totalPrice,
   }));
@@ -676,6 +909,7 @@ function openItemSheet(item, categoryKey) {
     bread: item.bread ? 'Pita' : null,
     grande: false,
     size: item.sizes ? 'mediana' : null,
+    exclusions: [],
     supplements: [],
     customPrice: item.editable ? item.price : null,
   };
@@ -746,6 +980,19 @@ function renderSheetOptions(item) {
 
   html += `
     <div>
+      <p class="text-sm font-semibold text-stone-700 mb-2">Exclusiones <span class="font-normal text-stone-400">(sin coste)</span></p>
+      <div class="space-y-2">
+        ${EXCLUSIONS.map((ex) => `
+          <label class="flex items-center justify-between p-3.5 bg-stone-50 rounded-xl cursor-pointer active:bg-stone-100">
+            <span class="font-medium">${ex.label}</span>
+            <input type="checkbox" data-exclusion="${ex.id}" class="exclusion-check w-5 h-5 accent-kebab-600 rounded">
+          </label>
+        `).join('')}
+      </div>
+    </div>`;
+
+  html += `
+    <div>
       <p class="text-sm font-semibold text-stone-700 mb-2">Pedido Destino</p>
       <select id="target-order" class="w-full border-2 border-stone-200 rounded-xl px-4 py-3.5 text-base font-medium focus:outline-none focus:border-kebab-500 bg-white appearance-none">
         <option value="new">Nuevo Pedido (carrito)</option>
@@ -753,19 +1000,6 @@ function renderSheetOptions(item) {
           <option value="${o.id}">${getOrderLabel(o)} — ${formatPrice(o.total)}</option>
         `).join('')}
       </select>
-    </div>`;
-
-  html += `
-    <div>
-      <p class="text-sm font-semibold text-stone-700 mb-2">Suplementos <span class="font-normal text-stone-400">(+${formatPrice(SUPPLEMENT_PRICE)} c/u)</span></p>
-      <div class="space-y-2">
-        ${SUPPLEMENTS.map((s) => `
-          <label class="flex items-center justify-between p-3.5 bg-stone-50 rounded-xl cursor-pointer active:bg-stone-100">
-            <span class="font-medium">${s.label}</span>
-            <input type="checkbox" data-supplement="${s.id}" class="supplement-check w-5 h-5 accent-kebab-600 rounded">
-          </label>
-        `).join('')}
-      </div>
     </div>`;
 
   dom.sheetBody.innerHTML = html;
@@ -840,22 +1074,21 @@ function bindSheetEvents(item) {
     });
   }
 
-  $$('.supplement-check').forEach((check) => {
+  $$('.exclusion-check').forEach((check) => {
     check.addEventListener('change', () => {
-      const id = check.dataset.supplement;
+      const id = check.dataset.exclusion;
       if (check.checked) {
-        if (!sheetConfig.supplements.includes(id)) sheetConfig.supplements.push(id);
+        if (!sheetConfig.exclusions.includes(id)) sheetConfig.exclusions.push(id);
       } else {
-        sheetConfig.supplements = sheetConfig.supplements.filter((s) => s !== id);
+        sheetConfig.exclusions = sheetConfig.exclusions.filter((e) => e !== id);
       }
-      updateSheetPrice();
     });
   });
 }
 
 function updateSheetPrice() {
   if (!currentSheetItem) return;
-  dom.sheetPrice.textContent = formatPrice(calculateItemPrice(currentSheetItem, sheetConfig));
+  dom.sheetPrice.textContent = formatPrice(calculateBasePrice(currentSheetItem, sheetConfig));
 }
 
 function closeItemSheet() {
@@ -914,6 +1147,40 @@ function renderMenuItems() {
   });
 }
 
+function renderCartItemCard(entry, orderId = null) {
+  const menuItem = findMenuItem(entry.itemId);
+  const modifierLabel = buildModifierLabel(entry.config, menuItem);
+
+  return `
+    <div class="bg-stone-50 rounded-xl p-4">
+      <div class="flex items-start justify-between gap-2">
+        <div class="flex-1 min-w-0">
+          <p class="font-semibold text-stone-900">${entry.name}</p>
+          <p class="text-xs text-stone-400">${entry.category}</p>
+          ${modifierLabel ? `<p class="text-xs text-stone-500 mt-1">${modifierLabel}</p>` : ''}
+          ${renderSupplementTags(entry, orderId)}
+        </div>
+        <button type="button" data-remove="${entry.cartId}" class="text-red-400 hover:text-red-600 p-1 flex-shrink-0" aria-label="Eliminar">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        </button>
+      </div>
+      <button type="button"
+        data-add-supplement="${entry.cartId}"
+        data-order-id="${orderId || ''}"
+        class="mt-2 w-full py-2.5 border-2 border-dashed border-kebab-300 text-kebab-700 font-semibold text-sm rounded-xl hover:bg-kebab-50 active:bg-kebab-100 transition-colors">
+        + Añadir Suplemento (+1.00€)
+      </button>
+      <div class="flex items-center justify-between mt-3">
+        <div class="flex items-center gap-3">
+          <button type="button" data-qty-minus="${entry.cartId}" class="w-9 h-9 rounded-full bg-white border-2 border-stone-200 font-bold text-lg flex items-center justify-center active:bg-stone-100">−</button>
+          <span class="font-bold text-lg w-6 text-center">${entry.quantity}</span>
+          <button type="button" data-qty-plus="${entry.cartId}" class="w-9 h-9 rounded-full bg-kebab-600 text-white font-bold text-lg flex items-center justify-center active:bg-kebab-700">+</button>
+        </div>
+        <span class="font-bold text-kebab-700 text-lg">${formatPrice(entry.totalPrice)}</span>
+      </div>
+    </div>`;
+}
+
 function renderCartItems() {
   if (cart.length === 0) {
     dom.cartItems.innerHTML = '';
@@ -925,32 +1192,7 @@ function renderCartItems() {
   dom.cartEmpty.classList.add('hidden');
   dom.cartFooter.classList.remove('hidden');
 
-  dom.cartItems.innerHTML = cart.map((entry) => {
-    const menuItem = findMenuItem(entry.itemId);
-    const configLabel = buildConfigLabel(entry.config, menuItem);
-
-    return `
-      <div class="bg-stone-50 rounded-xl p-4">
-        <div class="flex items-start justify-between gap-2">
-          <div class="flex-1 min-w-0">
-            <p class="font-semibold text-stone-900">${entry.name}</p>
-            <p class="text-xs text-stone-400">${entry.category}</p>
-            ${configLabel ? `<p class="text-xs text-kebab-600 mt-1">${configLabel}</p>` : ''}
-          </div>
-          <button type="button" data-remove="${entry.cartId}" class="text-red-400 hover:text-red-600 p-1 flex-shrink-0" aria-label="Eliminar">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-          </button>
-        </div>
-        <div class="flex items-center justify-between mt-3">
-          <div class="flex items-center gap-3">
-            <button type="button" data-qty-minus="${entry.cartId}" class="w-9 h-9 rounded-full bg-white border-2 border-stone-200 font-bold text-lg flex items-center justify-center active:bg-stone-100">−</button>
-            <span class="font-bold text-lg w-6 text-center">${entry.quantity}</span>
-            <button type="button" data-qty-plus="${entry.cartId}" class="w-9 h-9 rounded-full bg-kebab-600 text-white font-bold text-lg flex items-center justify-center active:bg-kebab-700">+</button>
-          </div>
-          <span class="font-bold text-kebab-700 text-lg">${formatPrice(entry.totalPrice)}</span>
-        </div>
-      </div>`;
-  }).join('');
+  dom.cartItems.innerHTML = cart.map((entry) => renderCartItemCard(entry)).join('');
 
   dom.cartItems.querySelectorAll('[data-remove]').forEach((btn) => {
     btn.addEventListener('click', () => removeFromCart(btn.dataset.remove));
@@ -961,6 +1203,7 @@ function renderCartItems() {
   dom.cartItems.querySelectorAll('[data-qty-plus]').forEach((btn) => {
     btn.addEventListener('click', () => updateCartQuantity(btn.dataset.qtyPlus, 1));
   });
+  bindSupplementControls(dom.cartItems);
 }
 
 function updateCartUI() {
@@ -997,15 +1240,38 @@ function renderOrderCard(order, { showActions = false } = {}) {
     hour: '2-digit', minute: '2-digit',
   });
 
-  const itemsHtml = order.items.map((item) => `
-    <div class="flex justify-between text-sm py-1.5 border-b border-stone-100 last:border-0">
-      <div class="flex-1 min-w-0 pr-2">
-        <span class="font-medium">${item.quantity}x ${item.name}</span>
-        ${item.configLabel ? `<span class="text-xs text-kebab-600 block mt-0.5">${item.configLabel}</span>` : ''}
-      </div>
-      <span class="text-stone-600 flex-shrink-0 font-medium">${formatPrice(item.totalPrice)}</span>
-    </div>
-  `).join('');
+  const itemsHtml = order.items.map((item) => {
+    if (showActions) {
+      const menuItem = findMenuItem(item.itemId);
+      const modifierLabel = buildModifierLabel(item.config || {}, menuItem);
+      return `
+        <div class="py-2 border-b border-stone-100 last:border-0">
+          <div class="flex justify-between text-sm gap-2">
+            <div class="flex-1 min-w-0">
+              <span class="font-medium">${item.quantity}x ${item.name}</span>
+              ${modifierLabel ? `<span class="text-xs text-stone-500 block mt-0.5">${modifierLabel}</span>` : ''}
+              ${renderSupplementTags(item, order.id)}
+            </div>
+            <span class="text-stone-600 flex-shrink-0 font-medium pt-0.5">${formatPrice(item.totalPrice)}</span>
+          </div>
+          <button type="button"
+            data-add-supplement="${item.cartId}"
+            data-order-id="${order.id}"
+            class="mt-2 w-full py-2 border-2 border-dashed border-kebab-300 text-kebab-700 font-semibold text-xs rounded-lg hover:bg-kebab-50 active:bg-kebab-100 transition-colors">
+            + Añadir Suplemento (+1.00€)
+          </button>
+        </div>`;
+    }
+
+    return `
+      <div class="flex justify-between text-sm py-1.5 border-b border-stone-100 last:border-0">
+        <div class="flex-1 min-w-0 pr-2">
+          <span class="font-medium">${item.quantity}x ${item.name}</span>
+          ${item.configLabel ? `<span class="text-xs text-kebab-600 block mt-0.5">${item.configLabel}</span>` : ''}
+        </div>
+        <span class="text-stone-600 flex-shrink-0 font-medium">${formatPrice(item.totalPrice)}</span>
+      </div>`;
+  }).join('');
 
   const statusBadge = order.status === 'active'
     ? '<span class="text-xs font-semibold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Activo</span>'
@@ -1062,6 +1328,7 @@ function renderActiveOrders() {
   dom.activeOrdersList.querySelectorAll('[data-complete-order]').forEach((btn) => {
     btn.addEventListener('click', () => completeOrder(btn.dataset.completeOrder));
   });
+  bindSupplementControls(dom.activeOrdersList);
 }
 
 function renderHistory() {
@@ -1136,7 +1403,10 @@ function bindEvents() {
 
   $('#sheet-add-btn').addEventListener('click', () => {
     if (!currentSheetItem || !currentSheetCategoryKey) return;
-    const config = { ...sheetConfig, supplements: [...sheetConfig.supplements] };
+    const config = normalizeConfig({
+      ...sheetConfig,
+      supplements: [],
+    });
     const target = $('#target-order') ? $('#target-order').value : sheetTargetOrder;
 
     if (target && target !== 'new') {
@@ -1187,6 +1457,11 @@ function bindEvents() {
 
   $('#btn-export').addEventListener('click', exportOrders);
   $('#btn-clear').addEventListener('click', clearHistory);
+
+  $('#supplement-close').addEventListener('click', closeSupplementPicker);
+  dom.supplementOverlay.addEventListener('click', (e) => {
+    if (e.target === dom.supplementOverlay) closeSupplementPicker();
+  });
 }
 
 /* ============================================================
