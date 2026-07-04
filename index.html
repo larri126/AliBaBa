@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#c2410c">
+  <title>Kebab POS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            kebab: {
+              50: '#fff7ed',
+              100: '#ffedd5',
+              200: '#fed7aa',
+              500: '#f97316',
+              600: '#ea580c',
+              700: '#c2410c',
+              800: '#9a3412',
+              900: '#7c2d12',
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-stone-100 text-stone-900 min-h-screen pb-24 antialiased">
+
+  <!-- Header -->
+  <header class="sticky top-0 z-40 bg-kebab-700 text-white shadow-lg">
+    <div class="px-4 py-3 flex items-center justify-between">
+      <div>
+        <h1 class="text-xl font-bold tracking-tight">🥙 Kebab POS</h1>
+        <p class="text-kebab-200 text-xs" id="header-subtitle">Menú activo</p>
+      </div>
+      <div class="flex bg-kebab-800 rounded-xl p-1 gap-0.5 overflow-x-auto scrollbar-hide max-w-[58%]">
+        <button id="nav-menu" class="nav-tab active px-3 py-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex-shrink-0" data-view="menu">
+          Menú
+        </button>
+        <button id="nav-active" class="nav-tab px-3 py-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex-shrink-0" data-view="active">
+          Comandas
+        </button>
+        <button id="nav-history" class="nav-tab px-3 py-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex-shrink-0" data-view="history">
+          Historial
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MENU VIEW -->
+  <main id="view-menu" class="view-panel">
+
+    <!-- Category Tabs (horizontal scroll) -->
+    <div class="sticky top-[60px] z-30 bg-stone-100 border-b border-stone-200 shadow-sm">
+      <div id="category-tabs" class="flex gap-2 px-3 py-3 overflow-x-auto scrollbar-hide" style="-webkit-overflow-scrolling: touch;">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+
+    <!-- Menu Items -->
+    <div id="menu-items" class="px-3 py-4 space-y-2">
+      <!-- Populated by JS -->
+    </div>
+  </main>
+
+  <!-- ACTIVE ORDERS (COMANDAS) VIEW -->
+  <main id="view-active" class="view-panel hidden">
+    <div class="px-4 py-4 space-y-4">
+      <div class="bg-white rounded-2xl shadow-sm p-4">
+        <h2 class="text-lg font-bold text-stone-800">Comandas Activas</h2>
+        <p class="text-sm text-stone-500 mt-1">Pedidos abiertos en curso. Puedes editarlos o añadir artículos directamente desde el menú.</p>
+        <div class="flex items-center justify-between text-sm text-stone-500 mt-3 pt-3 border-t border-stone-100">
+          <span>Pedidos activos:</span>
+          <span id="active-orders-count" class="font-bold text-kebab-700">0</span>
+        </div>
+      </div>
+      <div id="active-orders-list" class="space-y-3"></div>
+      <div id="active-orders-empty" class="hidden text-center py-12 text-stone-400">
+        <svg class="w-16 h-16 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <p class="text-lg font-medium">Sin comandas activas</p>
+        <p class="text-sm mt-1">Los pedidos enviados aparecerán aquí</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- HISTORY / ADMIN VIEW -->
+  <main id="view-history" class="view-panel hidden">
+    <div class="px-4 py-4 space-y-4">
+
+      <!-- Admin Actions -->
+      <div class="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+        <h2 class="text-lg font-bold text-stone-800">Administración</h2>
+        <p class="text-sm text-stone-500">Gestiona los pedidos guardados en este dispositivo.</p>
+        <div class="flex flex-col gap-2">
+          <button id="btn-export" class="w-full bg-kebab-600 hover:bg-kebab-700 active:bg-kebab-800 text-white font-semibold py-3.5 px-4 rounded-xl transition-colors flex items-center justify-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            Exportar Pedidos (.json)
+          </button>
+          <button id="btn-clear" class="w-full bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-700 font-semibold py-3.5 px-4 rounded-xl border border-red-200 transition-colors flex items-center justify-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            Limpiar Historial
+          </button>
+        </div>
+        <div class="flex items-center justify-between text-sm text-stone-500 pt-1">
+          <span>Total pedidos:</span>
+          <span id="orders-count" class="font-bold text-stone-800">0</span>
+        </div>
+        <div class="flex items-center justify-between text-sm text-stone-500">
+          <span>Ingresos totales:</span>
+          <span id="orders-revenue" class="font-bold text-kebab-700">0.00€</span>
+        </div>
+      </div>
+
+      <!-- Orders List -->
+      <div id="orders-list" class="space-y-3">
+        <!-- Populated by JS -->
+      </div>
+      <div id="orders-empty" class="hidden text-center py-12 text-stone-400">
+        <svg class="w-16 h-16 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <p class="text-lg font-medium">Sin pedidos</p>
+        <p class="text-sm mt-1">Los pedidos enviados aparecerán aquí</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- STICKY CART BAR -->
+  <div id="cart-bar" class="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.1)] hidden">
+    <div class="px-4 py-3 flex items-center gap-3">
+      <button id="btn-open-cart" class="flex-1 flex items-center justify-between bg-kebab-600 hover:bg-kebab-700 active:bg-kebab-800 text-white rounded-xl px-4 py-3.5 transition-colors">
+        <div class="flex items-center gap-2">
+          <span class="bg-white/20 rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold" id="cart-count">0</span>
+          <span class="font-semibold">Ver Carrito</span>
+        </div>
+        <span class="text-lg font-bold" id="cart-total-bar">0.00€</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ITEM CUSTOMIZATION BOTTOM SHEET -->
+  <div id="item-sheet-overlay" class="fixed inset-0 z-[60] bg-black/50 hidden transition-opacity" aria-hidden="true"></div>
+  <div id="item-sheet" class="fixed bottom-0 left-0 right-0 z-[70] bg-white rounded-t-3xl shadow-2xl transform translate-y-full transition-transform duration-300 max-h-[90vh] flex flex-col" role="dialog" aria-modal="true">
+    <div class="flex justify-center pt-3 pb-1">
+      <div class="w-10 h-1 bg-stone-300 rounded-full"></div>
+    </div>
+    <div class="px-5 pb-2 flex items-start justify-between">
+      <div>
+        <h3 id="sheet-item-name" class="text-xl font-bold text-stone-900"></h3>
+        <p id="sheet-item-category" class="text-sm text-stone-500"></p>
+      </div>
+      <button id="sheet-close" class="p-2 -mr-2 text-stone-400 hover:text-stone-600" aria-label="Cerrar">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div id="sheet-body" class="flex-1 overflow-y-auto px-5 pb-4 space-y-5">
+      <!-- Dynamic options rendered by JS -->
+    </div>
+    <div class="border-t border-stone-100 px-5 py-4 bg-white">
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-stone-600 font-medium">Precio:</span>
+        <span id="sheet-price" class="text-2xl font-bold text-kebab-700">0.00€</span>
+      </div>
+      <button id="sheet-add-btn" class="w-full bg-kebab-600 hover:bg-kebab-700 active:bg-kebab-800 text-white font-bold py-4 rounded-xl text-lg transition-colors">
+        Añadir al Carrito
+      </button>
+    </div>
+  </div>
+
+  <!-- CART BOTTOM SHEET -->
+  <div id="cart-sheet-overlay" class="fixed inset-0 z-[60] bg-black/50 hidden transition-opacity" aria-hidden="true"></div>
+  <div id="cart-sheet" class="fixed bottom-0 left-0 right-0 z-[70] bg-white rounded-t-3xl shadow-2xl transform translate-y-full transition-transform duration-300 max-h-[92vh] flex flex-col" role="dialog" aria-modal="true">
+    <div class="flex justify-center pt-3 pb-1">
+      <div class="w-10 h-1 bg-stone-300 rounded-full"></div>
+    </div>
+    <div class="px-5 pb-3 border-b border-stone-100">
+      <div class="flex items-center justify-between">
+        <h3 class="text-xl font-bold">🛒 Carrito</h3>
+        <button id="cart-close" class="p-2 -mr-2 text-stone-400 hover:text-stone-600" aria-label="Cerrar">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="editing-banner" class="hidden mt-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 flex items-center justify-between">
+        <p class="text-sm text-amber-800 font-medium">✏️ Editando: <span id="editing-label"></span></p>
+        <button id="btn-cancel-edit" type="button" class="text-xs font-semibold text-amber-700 underline">Cancelar</button>
+      </div>
+    </div>
+    <div id="cart-items" class="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+      <!-- Populated by JS -->
+    </div>
+    <div id="cart-empty" class="flex-1 flex flex-col items-center justify-center text-stone-400 py-12 hidden">
+      <svg class="w-16 h-16 mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+      <p class="text-lg font-medium">Carrito vacío</p>
+    </div>
+    <div id="cart-footer" class="border-t border-stone-100 px-5 py-4 bg-white space-y-3">
+      <div class="flex items-center justify-between text-lg">
+        <span class="font-semibold text-stone-700">Total:</span>
+        <span id="cart-total" class="text-2xl font-bold text-kebab-700">0.00€</span>
+      </div>
+      <button id="btn-checkout" class="w-full bg-green-600 hover:bg-green-700 active:bg-green-800 text-white font-bold py-4 rounded-xl text-lg transition-colors">
+        Enviar Pedido
+      </button>
+      <button id="btn-save-edit" class="hidden w-full bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold py-4 rounded-xl text-lg transition-colors">
+        Guardar Cambios
+      </button>
+    </div>
+  </div>
+
+  <!-- CHECKOUT MODAL -->
+  <div id="checkout-overlay" class="fixed inset-0 z-[80] bg-black/60 hidden flex items-end sm:items-center justify-center" aria-hidden="true">
+    <div class="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <h3 class="text-xl font-bold">Finalizar Pedido</h3>
+        <button id="checkout-close" class="p-2 text-stone-400 hover:text-stone-600" aria-label="Cerrar">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Order type toggle: Dine-in (Table) OR Takeaway (Name) -->
+      <div>
+        <label class="block text-sm font-semibold text-stone-700 mb-2">Tipo de Pedido *</label>
+        <div class="flex bg-stone-100 rounded-xl p-1 gap-1">
+          <button type="button" id="type-dinein" class="order-type-btn flex-1 py-3 rounded-lg text-sm font-semibold transition-all" data-type="dine-in">
+            🪑 En Mesa
+          </button>
+          <button type="button" id="type-takeaway" class="order-type-btn flex-1 py-3 rounded-lg text-sm font-semibold transition-all" data-type="takeaway">
+            🥡 Para Llevar
+          </button>
+        </div>
+      </div>
+
+      <div id="section-table">
+        <label class="block text-sm font-semibold text-stone-700 mb-2">Número de Mesa *</label>
+        <div id="table-buttons" class="grid grid-cols-5 gap-2">
+          <button type="button" data-table="1" class="table-btn border-2 border-stone-200 rounded-xl py-3.5 font-semibold text-lg hover:border-kebab-400 transition-colors">1</button>
+          <button type="button" data-table="2" class="table-btn border-2 border-stone-200 rounded-xl py-3.5 font-semibold text-lg hover:border-kebab-400 transition-colors">2</button>
+          <button type="button" data-table="3" class="table-btn border-2 border-stone-200 rounded-xl py-3.5 font-semibold text-lg hover:border-kebab-400 transition-colors">3</button>
+          <button type="button" data-table="4" class="table-btn border-2 border-stone-200 rounded-xl py-3.5 font-semibold text-lg hover:border-kebab-400 transition-colors">4</button>
+          <button type="button" data-table="5" class="table-btn border-2 border-stone-200 rounded-xl py-3.5 font-semibold text-lg hover:border-kebab-400 transition-colors">5</button>
+        </div>
+      </div>
+
+      <div id="section-name" class="hidden">
+        <label for="customer-name" class="block text-sm font-semibold text-stone-700 mb-2">Nombre del Cliente *</label>
+        <input type="text" id="customer-name" placeholder="Ej: Juan" autocomplete="off"
+          class="w-full border-2 border-stone-200 rounded-xl px-4 py-3.5 text-lg focus:outline-none focus:border-kebab-500 transition-colors">
+      </div>
+
+      <div class="bg-stone-50 rounded-xl p-4">
+        <div class="flex justify-between text-sm text-stone-600 mb-1">
+          <span>Artículos:</span>
+          <span id="checkout-items-count">0</span>
+        </div>
+        <div class="flex justify-between text-lg font-bold">
+          <span>Total:</span>
+          <span id="checkout-total" class="text-kebab-700">0.00€</span>
+        </div>
+      </div>
+
+      <button id="btn-submit-order" class="w-full bg-green-600 hover:bg-green-700 active:bg-green-800 text-white font-bold py-4 rounded-xl text-lg transition-colors">
+        Confirmar y Enviar
+      </button>
+    </div>
+  </div>
+
+  <!-- SUPPLEMENT PICKER MODAL -->
+  <div id="supplement-overlay" class="fixed inset-0 z-[85] bg-black/60 hidden flex items-end justify-center" aria-hidden="true">
+    <div class="bg-white w-full rounded-t-3xl shadow-2xl p-5 pb-8 max-h-[70vh] flex flex-col">
+      <div class="flex items-center justify-between mb-4">
+        <h3 id="supplement-picker-title" class="text-lg font-bold text-stone-900">Añadir Suplemento</h3>
+        <button id="supplement-close" class="p-2 text-stone-400 hover:text-stone-600" aria-label="Cerrar">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <p class="text-sm text-stone-500 mb-3">Cada suplemento añade +1.00€ al artículo</p>
+      <div id="supplement-picker-list" class="flex-1 overflow-y-auto space-y-2">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast" class="fixed top-20 left-1/2 -translate-x-1/2 z-[90] bg-stone-800 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium hidden transition-all opacity-0 translate-y-[-10px]">
+    Mensaje
+  </div>
+
+  <!-- CONFIRM DIALOG -->
+  <div id="confirm-overlay" class="fixed inset-0 z-[100] bg-black/60 hidden flex items-center justify-center p-6" aria-hidden="true">
+    <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm space-y-4">
+      <h3 id="confirm-title" class="text-lg font-bold">¿Confirmar?</h3>
+      <p id="confirm-message" class="text-stone-600 text-sm"></p>
+      <div class="flex gap-3">
+        <button id="confirm-cancel" class="flex-1 border-2 border-stone-200 py-3 rounded-xl font-semibold hover:bg-stone-50 transition-colors">Cancelar</button>
+        <button id="confirm-ok" class="flex-1 bg-red-600 text-white py-3 rounded-xl font-semibold hover:bg-red-700 transition-colors">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    .nav-tab.active { background: white; color: #c2410c; }
+    .nav-tab:not(.active) { color: #fed7aa; }
+    .category-tab.active { background: #c2410c; color: white; border-color: #c2410c; }
+    .category-tab:not(.active) { background: white; color: #44403c; border-color: #e7e5e4; }
+    .table-btn.selected { background: #c2410c; color: white; border-color: #c2410c; }
+    .order-type-btn.active { background: white; color: #c2410c; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .order-type-btn:not(.active) { color: #78716c; }
+    .accordion-chevron.rotate-180 { transform: rotate(180deg); }
+    .sheet-open { transform: translateY(0) !important; }
+    .overlay-visible { display: block !important; opacity: 1 !important; }
+    .toast-visible { display: block !important; opacity: 1 !important; transform: translateX(-50%) translateY(0) !important; }
+  </style>
+
+  <script src="app.js"></script>
+</body>
+</html>
