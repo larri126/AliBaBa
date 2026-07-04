@@ -5,7 +5,7 @@
 const STORAGE_KEY = 'kebab_pos_orders';
 const GRANDE_SURCHARGE = 1.50;
 const SUPPLEMENT_PRICE = 1.00;
-const DEFAULT_DRINK_PRICE = 1.50;
+const REFRESCO_PRICE = 1.80;
 
 const SUPPLEMENTS = [
   { id: 'queso', label: 'Queso' },
@@ -17,11 +17,42 @@ const SUPPLEMENTS = [
 ];
 
 const EXCLUSIONS = [
-  { id: 'sin_ensalada', label: 'Sin ensalada' },
-  { id: 'sin_cebolla', label: 'Sin cebolla' },
   { id: 'sin_lechuga', label: 'Sin lechuga' },
   { id: 'sin_tomate', label: 'Sin tomate' },
+  { id: 'sin_cebolla', label: 'Sin cebolla' },
   { id: 'sin_col', label: 'Sin col' },
+  { id: 'sin_salsa_blanca', label: 'Sin salsa blanca' },
+  { id: 'sin_salsa_roja', label: 'Sin salsa roja' },
+  { id: 'sin_patatas', label: 'Sin patatas' },
+];
+
+const MENU_DRINK_OPTIONS = [
+  'Nestea Maracuyá',
+  'Nestea Frutos Rojos',
+  '7up',
+  'Aquarius Normal',
+  'Aquarius Melocotón Rojo',
+  'Aquarius Naranja',
+  'Coca-Cola Normal',
+  'Coca-Cola Zero',
+  'Fanta Naranja',
+  'Fanta Limón',
+  'Amstel 0,0 Lata',
+  'Heineken Lata',
+  'Amstel Lata',
+  'Mahou Lata',
+  'Agua Pequeña',
+  'Agua con Gas',
+  'Gaseosa',
+  'Sweeps (Schweppes)',
+  'Zumo Piña',
+  'Zumo Piña sin azúcar',
+  'Energética Pequeña',
+  'Agua Grande',
+];
+
+const CHUPITO_COPA_STANDARD = [
+  'Casalla', 'Vino', 'Herbero', 'Orujo', 'Whisky', 'Larios', 'Maestranza', 'Mistela',
 ];
 
 const MENU = {
@@ -110,28 +141,51 @@ const MENU = {
     label: 'Menús',
     icon: '🍱',
     items: [
-      { id: 'menu_1', name: 'Menú 1', price: 8.00, description: '1 Kebab', grande: true },
-      { id: 'menu_2', name: 'Menú 2', price: 14.00, description: '2 Kebabs', grande: true },
-      { id: 'menu_3', name: 'Menú 3', price: 8.00, description: '1 Kebab Falafel', grande: true },
-      { id: 'menu_4', name: 'Menú 4', price: 9.00, description: '6 Alitas + Arroz' },
-      { id: 'menu_5', name: 'Menú 5', price: 9.00, description: '8 Nuggets + Arroz' },
-      { id: 'menu_6', name: 'Menú 6', price: 9.00, description: '1 Burger' },
+      { id: 'menu_1', name: 'Menú 1', price: 8.00, description: '1 Kebab', grande: true, menuDrink: true },
+      { id: 'menu_2', name: 'Menú 2', price: 14.00, description: '2 Kebabs', grande: true, menuDrink: true },
+      { id: 'menu_3', name: 'Menú 3', price: 8.00, description: '1 Kebab Falafel', grande: true, menuDrink: true },
+      { id: 'menu_4', name: 'Menú 4', price: 9.00, description: '6 Alitas + Arroz', menuDrink: true },
+      { id: 'menu_5', name: 'Menú 5', price: 9.00, description: '8 Nuggets + Arroz', menuDrink: true },
+      { id: 'menu_6', name: 'Menú 6', price: 9.00, description: '1 Burger', menuDrink: true },
     ],
   },
-  drinks: {
-    label: 'Bebidas',
-    icon: '🥤',
+  chupitos_copas: {
+    label: 'Chupitos & Copas',
+    icon: '🥃',
     items: [
-      { id: 'drink_coca', name: 'Coca-Cola Normal', price: DEFAULT_DRINK_PRICE, editable: true },
-      { id: 'drink_coca_zero', name: 'Coca-Cola Zero', price: DEFAULT_DRINK_PRICE, editable: true },
-      { id: 'drink_nestea_maracuya', name: 'Nestea Maracuyá', price: DEFAULT_DRINK_PRICE, editable: true },
-      { id: 'drink_nestea_frutos', name: 'Nestea Frutos Rojos', price: DEFAULT_DRINK_PRICE, editable: true },
-      { id: 'drink_agua_pequena', name: 'Agua Pequeña', price: DEFAULT_DRINK_PRICE, editable: true },
-      { id: 'drink_agua_grande', name: 'Agua Grande', price: DEFAULT_DRINK_PRICE, editable: true },
-      { id: 'drink_heineken', name: 'Heineken', price: DEFAULT_DRINK_PRICE, editable: true },
-      { id: 'drink_latas', name: 'Latas', price: DEFAULT_DRINK_PRICE, editable: true },
-      { id: 'drink_tercios', name: 'Tercios', price: DEFAULT_DRINK_PRICE, editable: true },
-      { id: 'drink_litros', name: 'Litros', price: DEFAULT_DRINK_PRICE, editable: true },
+      ...CHUPITO_COPA_STANDARD.map((name) => ({
+        id: `chup_${name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+        name,
+        sizes: { chupito: 1.00, copa: 2.50 },
+        sizeLabels: { chupito: 'Chupito', copa: 'Copa' },
+      })),
+      {
+        id: 'chup_tequila',
+        name: 'Tequila',
+        sizes: { chupito: 2.00, copa: 3.00 },
+        sizeLabels: { chupito: 'Chupito', copa: 'Copa' },
+      },
+    ],
+  },
+  refrescos: {
+    label: 'Refrescos',
+    icon: '🥤',
+    items: MENU_DRINK_OPTIONS.map((name) => ({
+      id: `ref_${name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+      name,
+      price: REFRESCO_PRICE,
+    })),
+  },
+  premium_litros: {
+    label: 'Premium / Litros',
+    icon: '🍺',
+    items: [
+      { id: 'prem_litro_amstel', name: 'Litro Amstel', price: 3.50 },
+      { id: 'prem_monster', name: 'Monster', price: 2.50 },
+      { id: 'prem_litro_alhambra', name: 'Litro Alhambra', price: 2.50 },
+      { id: 'prem_radler', name: 'Radler', price: 2.50 },
+      { id: 'prem_tinto_verano', name: 'Tinto de Verano', price: 2.50 },
+      { id: 'prem_amstel_tostada', name: 'Amstel 0,0 Tostada Cristal', price: 2.50 },
     ],
   },
 };
@@ -298,6 +352,10 @@ function migrateOrders() {
       const config = item.config || {};
       if (!config.exclusions) { config.exclusions = []; changed = true; }
       if (!config.supplements) { config.supplements = []; changed = true; }
+      if (config.exclusions.includes('sin_ensalada')) {
+        config.exclusions = config.exclusions.filter((e) => e !== 'sin_ensalada');
+        changed = true;
+      }
       return {
         ...item,
         itemId: item.itemId || null,
@@ -428,6 +486,7 @@ function normalizeConfig(config) {
     grande: !!config.grande,
     size: config.size || null,
     customPrice: config.customPrice ?? null,
+    menuDrink: config.menuDrink || null,
     exclusions: [...(config.exclusions || [])],
     supplements: [...(config.supplements || [])],
   };
@@ -448,7 +507,7 @@ function recalculateOrderItem(entry) {
 
 function buildCartEntry(item, categoryKey, config) {
   const normalized = normalizeConfig(config);
-  const unitPrice = calculateBasePrice(item, normalized);
+  const unitPrice = calculateUnitPrice(item, normalized);
   return {
     cartId: generateId(),
     itemId: item.id,
@@ -519,14 +578,19 @@ function clearCart() {
   updateCartUI();
 }
 
+function getSizeLabel(config, item) {
+  if (!config.size || !item?.sizes) return null;
+  if (item.sizeLabels) return item.sizeLabels[config.size] || config.size;
+  return config.size === 'grande' ? 'Grande' : 'Mediana';
+}
+
 function buildModifierLabel(config, item) {
   const parts = [];
 
   if (config.bread) parts.push(config.bread);
   if (config.grande && item?.grande) parts.push('Grande');
-  if (config.size && item?.sizes) {
-    parts.push(config.size === 'grande' ? 'Grande' : 'Mediana');
-  }
+  const sizeLabel = getSizeLabel(config, item);
+  if (sizeLabel) parts.push(sizeLabel);
   if (config.exclusions?.length > 0) {
     const labels = config.exclusions.map((id) => {
       const ex = EXCLUSIONS.find((e) => e.id === id);
@@ -534,7 +598,7 @@ function buildModifierLabel(config, item) {
     });
     parts.push(labels.join(', '));
   }
-
+  if (config.menuDrink) parts.push(`Bebida: ${config.menuDrink}`);
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
@@ -543,9 +607,8 @@ function buildConfigLabel(config, item) {
 
   if (config.bread) parts.push(config.bread);
   if (config.grande && item?.grande) parts.push('Grande');
-  if (config.size && item?.sizes) {
-    parts.push(config.size === 'grande' ? 'Grande' : 'Mediana');
-  }
+  const sizeLabel = getSizeLabel(config, item);
+  if (sizeLabel) parts.push(sizeLabel);
   if (config.exclusions?.length > 0) {
     const labels = config.exclusions.map((id) => {
       const ex = EXCLUSIONS.find((e) => e.id === id);
@@ -553,6 +616,7 @@ function buildConfigLabel(config, item) {
     });
     parts.push(labels.join(', '));
   }
+  if (config.menuDrink) parts.push(`Bebida: ${config.menuDrink}`);
   if (config.supplements?.length > 0) {
     const labels = config.supplements.map((id) => {
       const sup = SUPPLEMENTS.find((s) => s.id === id);
@@ -900,6 +964,53 @@ function findMenuItem(itemId) {
    ITEM CUSTOMIZATION SHEET
    ============================================================ */
 
+function getDefaultSize(item) {
+  if (!item.sizes) return null;
+  if (item.sizeLabels) return 'chupito';
+  return 'mediana';
+}
+
+function getItemPriceDisplay(item) {
+  if (item.sizes) {
+    const prices = Object.values(item.sizes);
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    return min === max ? formatPrice(min) : `${formatPrice(min)} – ${formatPrice(max)}`;
+  }
+  return formatPrice(item.price);
+}
+
+function renderAccordion(id, title, subtitle, content, openByDefault = false) {
+  return `
+    <div class="border border-stone-200 rounded-xl overflow-hidden">
+      <button type="button" class="accordion-toggle w-full flex items-center justify-between p-4 bg-stone-50 active:bg-stone-100 transition-colors text-left" data-accordion="${id}" aria-expanded="${openByDefault}">
+        <div>
+          <span class="font-semibold text-stone-800">${title}</span>
+          ${subtitle ? `<span class="text-stone-400 font-normal text-sm ml-1">${subtitle}</span>` : ''}
+        </div>
+        <svg class="accordion-chevron w-5 h-5 text-stone-500 transition-transform duration-200 flex-shrink-0 ml-2 ${openByDefault ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </button>
+      <div class="accordion-panel ${openByDefault ? '' : 'hidden'} border-t border-stone-100 px-3 py-3 space-y-2 bg-white">
+        ${content}
+      </div>
+    </div>`;
+}
+
+function bindAccordions() {
+  $$('.accordion-toggle').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const panel = btn.nextElementSibling;
+      const chevron = btn.querySelector('.accordion-chevron');
+      const isHidden = panel.classList.contains('hidden');
+      panel.classList.toggle('hidden', !isHidden);
+      chevron?.classList.toggle('rotate-180', isHidden);
+      btn.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+    });
+  });
+}
+
 function openItemSheet(item, categoryKey) {
   currentSheetItem = item;
   currentSheetCategoryKey = categoryKey;
@@ -908,10 +1019,11 @@ function openItemSheet(item, categoryKey) {
   sheetConfig = {
     bread: item.bread ? 'Pita' : null,
     grande: false,
-    size: item.sizes ? 'mediana' : null,
+    size: getDefaultSize(item),
     exclusions: [],
     supplements: [],
-    customPrice: item.editable ? item.price : null,
+    menuDrink: null,
+    customPrice: null,
   };
   sheetTargetOrder = 'new';
 
@@ -952,44 +1064,52 @@ function renderSheetOptions(item) {
   }
 
   if (item.sizes) {
+    const labels = item.sizeLabels || { mediana: 'Mediana', grande: 'Grande' };
+    const sizeKeys = Object.keys(item.sizes);
     html += `
       <div>
         <p class="text-sm font-semibold text-stone-700 mb-2">Tamaño</p>
         <div class="flex gap-2">
-          <button type="button" data-size="mediana" class="size-btn flex-1 py-3 rounded-xl border-2 font-semibold transition-colors border-kebab-600 bg-kebab-50 text-kebab-700">
-            Mediana <span class="text-sm font-normal">${formatPrice(item.sizes.mediana)}</span>
-          </button>
-          <button type="button" data-size="grande" class="size-btn flex-1 py-3 rounded-xl border-2 font-semibold transition-colors border-stone-200 text-stone-700">
-            Grande <span class="text-sm font-normal">${formatPrice(item.sizes.grande)}</span>
-          </button>
+          ${sizeKeys.map((key, idx) => `
+            <button type="button" data-size="${key}" class="size-btn flex-1 py-3 rounded-xl border-2 font-semibold transition-colors ${idx === 0 ? 'border-kebab-600 bg-kebab-50 text-kebab-700' : 'border-stone-200 text-stone-700'}">
+              ${labels[key] || key} <span class="text-sm font-normal">${formatPrice(item.sizes[key])}</span>
+            </button>
+          `).join('')}
         </div>
       </div>`;
   }
 
-  if (item.editable) {
+  if (item.menuDrink) {
     html += `
       <div>
-        <p class="text-sm font-semibold text-stone-700 mb-2">Precio</p>
-        <div class="flex items-center gap-3">
-          <input type="number" id="opt-price" step="0.10" min="0" value="${item.price.toFixed(2)}"
-            class="flex-1 border-2 border-stone-200 rounded-xl px-4 py-3 text-lg font-semibold focus:outline-none focus:border-kebab-500">
-          <span class="text-stone-500 font-medium">€</span>
-        </div>
+        <p class="text-sm font-semibold text-stone-700 mb-2">Bebida incluida <span class="text-red-500">*</span></p>
+        <select id="menu-drink" class="w-full border-2 border-stone-200 rounded-xl px-4 py-3.5 text-base font-medium focus:outline-none focus:border-kebab-500 bg-white">
+          <option value="">Seleccionar bebida...</option>
+          ${MENU_DRINK_OPTIONS.map((d) => `<option value="${d}">${d}</option>`).join('')}
+        </select>
+        <p class="text-xs text-stone-400 mt-1.5">Incluida en el precio del menú</p>
       </div>`;
   }
 
-  html += `
-    <div>
-      <p class="text-sm font-semibold text-stone-700 mb-2">Exclusiones <span class="font-normal text-stone-400">(sin coste)</span></p>
-      <div class="space-y-2">
-        ${EXCLUSIONS.map((ex) => `
-          <label class="flex items-center justify-between p-3.5 bg-stone-50 rounded-xl cursor-pointer active:bg-stone-100">
-            <span class="font-medium">${ex.label}</span>
-            <input type="checkbox" data-exclusion="${ex.id}" class="exclusion-check w-5 h-5 accent-kebab-600 rounded">
-          </label>
-        `).join('')}
+  const exclusionsHtml = EXCLUSIONS.map((ex) => `
+    <label class="flex items-center justify-between p-3 bg-stone-50 rounded-xl cursor-pointer active:bg-stone-100">
+      <span class="font-medium text-sm">${ex.label}</span>
+      <input type="checkbox" data-exclusion="${ex.id}" class="exclusion-check w-5 h-5 accent-kebab-600 rounded">
+    </label>
+  `).join('');
+
+  const supplementsHtml = SUPPLEMENTS.map((s) => `
+    <label class="flex items-center justify-between p-3 bg-stone-50 rounded-xl cursor-pointer active:bg-stone-100">
+      <span class="font-medium text-sm">${s.label}</span>
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-kebab-600 font-semibold">+${formatPrice(SUPPLEMENT_PRICE)}</span>
+        <input type="checkbox" data-supplement="${s.id}" class="supplement-check w-5 h-5 accent-kebab-600 rounded">
       </div>
-    </div>`;
+    </label>
+  `).join('');
+
+  html += renderAccordion('quitar', 'Quitar', '(0.00€)', exclusionsHtml, true);
+  html += renderAccordion('suplementos', 'Suplementos', `(+${formatPrice(SUPPLEMENT_PRICE)} c/u)`, supplementsHtml, false);
 
   html += `
     <div>
@@ -1004,6 +1124,7 @@ function renderSheetOptions(item) {
 
   dom.sheetBody.innerHTML = html;
   bindSheetEvents(item);
+  bindAccordions();
 
   const targetSelect = $('#target-order');
   if (targetSelect) {
@@ -1074,6 +1195,13 @@ function bindSheetEvents(item) {
     });
   }
 
+  const menuDrinkSelect = $('#menu-drink');
+  if (menuDrinkSelect) {
+    menuDrinkSelect.addEventListener('change', () => {
+      sheetConfig.menuDrink = menuDrinkSelect.value || null;
+    });
+  }
+
   $$('.exclusion-check').forEach((check) => {
     check.addEventListener('change', () => {
       const id = check.dataset.exclusion;
@@ -1084,11 +1212,23 @@ function bindSheetEvents(item) {
       }
     });
   });
+
+  $$('.supplement-check').forEach((check) => {
+    check.addEventListener('change', () => {
+      const id = check.dataset.supplement;
+      if (check.checked) {
+        if (!sheetConfig.supplements.includes(id)) sheetConfig.supplements.push(id);
+      } else {
+        sheetConfig.supplements = sheetConfig.supplements.filter((s) => s !== id);
+      }
+      updateSheetPrice();
+    });
+  });
 }
 
 function updateSheetPrice() {
   if (!currentSheetItem) return;
-  dom.sheetPrice.textContent = formatPrice(calculateBasePrice(currentSheetItem, sheetConfig));
+  dom.sheetPrice.textContent = formatPrice(calculateUnitPrice(currentSheetItem, sheetConfig));
 }
 
 function closeItemSheet() {
@@ -1123,9 +1263,7 @@ function renderCategoryTabs() {
 function renderMenuItems() {
   const category = MENU[activeCategory];
   dom.menuItems.innerHTML = category.items.map((item) => {
-    const priceDisplay = item.sizes
-      ? `${formatPrice(item.sizes.mediana)} – ${formatPrice(item.sizes.grande)}`
-      : formatPrice(item.price);
+    const priceDisplay = getItemPriceDisplay(item);
 
     return `
       <button type="button" data-item-id="${item.id}" data-category="${activeCategory}"
@@ -1403,10 +1541,18 @@ function bindEvents() {
 
   $('#sheet-add-btn').addEventListener('click', () => {
     if (!currentSheetItem || !currentSheetCategoryKey) return;
-    const config = normalizeConfig({
-      ...sheetConfig,
-      supplements: [],
-    });
+
+    if (currentSheetItem.menuDrink) {
+      const drinkVal = $('#menu-drink')?.value || sheetConfig.menuDrink;
+      if (!drinkVal) {
+        showToast('Selecciona una bebida para el menú');
+        $('#menu-drink')?.focus();
+        return;
+      }
+      sheetConfig.menuDrink = drinkVal;
+    }
+
+    const config = normalizeConfig({ ...sheetConfig });
     const target = $('#target-order') ? $('#target-order').value : sheetTargetOrder;
 
     if (target && target !== 'new') {
